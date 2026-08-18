@@ -1,18 +1,19 @@
-# SSH-PLUS-MANAGER V33 ENGLISH TRANSLATION
+# SSH-PLUS-MANAGER V33 (Português)
 
-**Manage Script**
+**Script de Gerenciamento**
 
-## Features
+## Recursos
 
-* Manage SSH (OpenSSH / Dropbear), Squid Proxy, OpenVPN, Socks Proxy, SSL Tunnel and SSLH Multiplex
-* **Xray** (VLESS + VMess) user management — see `XRAY-README.md`
+* Gerenciamento de SSH (OpenSSH / Dropbear), Squid Proxy, OpenVPN, Proxy Socks, Túnel SSL e SSLH Multiplex
+* **V2ray** e **Xray** (VLESS + VMess) com gerenciamento de usuários — veja `XRAY-README.md`
+* Interface totalmente em **Português (PT-BR)**
 
-## Requirements
+## Requisitos
 
-* Operating system based on Linux (Ubuntu or Debian)
-* Recommended Ubuntu 16.04 Server x86_64
-* It may also work on some versions of Debian Server x86_64
+* Sistema operacional baseado em Linux (Ubuntu ou Debian)
+* Recomendado Ubuntu 16.04 Server x86_64
+* Pode funcionar também em algumas versões do Debian Server x86_64
 
-## Installation
+## Instalação
 
 apt-get update -y; apt-get upgrade -y; wget https://raw.githubusercontent.com/jenbhie/SSH-PLUS-MANAGER/main/Plus; chmod 777 Plus; ./Plus

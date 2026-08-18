@@ -6,7 +6,7 @@ tmp_now=$(printf '%(%H%M%S)T\n')
 fun_drop () {
 port_dropbear=`ps aux | grep dropbear | awk NR==1 | awk '{print $17;}'`
 log=/var/log/auth.log
-loginsukses='Password auth succeeded'
+loginsukses='Senha auth succeeded'
 clear
 pids=`ps ax |grep dropbear |grep  " $port_dropbear" |awk -F" " '{print $1}'`
 for pid in $pids
@@ -35,7 +35,7 @@ do
     fi
 done
 }
-echo -e "\E[44;1;37m User         Status       Connection     Time   \E[0m"
+echo -e "\E[44;1;37m Usuário       Status        Conexão       Tempo   \E[0m"
 echo ""
 echo ""
  while read usline
