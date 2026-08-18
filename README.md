@@ -16,4 +16,13 @@
 
 ## Instalação
 
-apt-get update -y; apt-get upgrade -y; wget https://raw.githubusercontent.com/jenbhie/SSH-PLUS-MANAGER/main/Plus; chmod 777 Plus; ./Plus
+O instalador deste repositório usa o usuário `Alefsousa5`:
+
+```
+apt-get update -y; apt-get upgrade -y
+wget https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/Plus-Alefsousa5
+chmod 777 Plus-Alefsousa5; ./Plus-Alefsousa5
+```
+
+> `Plus` é o instalador original (aponta para o repositório `jenbhie`). Use
+> `Plus-Alefsousa5` para instalar a partir do seu próprio repositório.

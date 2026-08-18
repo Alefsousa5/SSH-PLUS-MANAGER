@@ -72,9 +72,19 @@ usuários, se ambos estiverem instalados, o script pergunta qual núcleo gerenci
 
 ### Opção B — hospedar no seu próprio GitHub (instalação limpa)
 
-1. Faça um fork/upload deste repositório para a sua conta GitHub.
-2. Substitua `jenbhie` pelo **seu usuário** do GitHub nos arquivos `Plus` e `Install/list`.
-3. Rode a instalação apontando para o seu repositório.
+Este repositório já está configurado para o usuário `Alefsousa5` (instalador
+`Plus-Alefsousa5` + `Install/list` + `Modules/conexao`). Basta:
+
+1. Fazer o upload deste repositório para a sua conta GitHub.
+2. Rodar a instalação apontando para o seu repositório:
+   ```bash
+   apt-get update -y; apt-get upgrade -y
+   wget https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/Plus-Alefsousa5
+   chmod 777 Plus-Alefsousa5; ./Plus-Alefsousa5
+   ```
+
+> Para usar outro usuário, substitua `Alefsousa5` pelo seu usuário em
+> `Plus-Alefsousa5`, `Install/list` e `Modules/conexao`.
 
 ## Observações
 
