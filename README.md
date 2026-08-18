@@ -5,7 +5,7 @@
 ## Requirements
 
 * Operating system based on Linux (Ubuntu or Debian)
-* Recommended Ubuntu 16.04 Server x86_64
+* Recommended Ubuntu 20.04 Server x86_64
 * It may also work on some versions of Debian Server x86_64
 
 ## Installation
