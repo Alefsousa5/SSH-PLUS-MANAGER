@@ -1,6 +1,11 @@
-# SSH-PLUS-MANAGER V32 ENGLISH TRANSLATION
+# SSH-PLUS-MANAGER V33 ENGLISH TRANSLATION
 
 **Manage Script**
+
+## Features
+
+* Manage SSH (OpenSSH / Dropbear), Squid Proxy, OpenVPN, Socks Proxy, SSL Tunnel and SSLH Multiplex
+* **Xray** (VLESS + VMess) user management — see `XRAY-README.md`
 
 ## Requirements
 

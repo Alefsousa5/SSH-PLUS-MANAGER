@@ -1,6 +1,6 @@
 # Xray no SSH-PLUS-MANAGER (V32 EN)
 
-Adição do **Xray** (VLESS + VMess) como opção **09** no menu **MANAGE CONNECTIONS**
+Adição do **Xray** (VLESS + VMess) como opção **08** no menu **MANAGE CONNECTIONS**
 (opção `10` do menu principal → `conexao`).
 
 ## O que foi alterado
