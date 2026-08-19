@@ -28,6 +28,12 @@ UPSTREAM_REPO="SSHPLUS-MANAGER-FREE"
 UPSTREAM_BRANCH="master"
 UPSTREAM_URL="https://github.com/$UPSTREAM_USER/$UPSTREAM_REPO.git"
 
+# repositorio atual (de onde este script esta rodando) - as URLs dos arquivos
+# daqui apontam para ele, entao tambem precisam ser reescritas
+ATUAL_USER="Alefsousa5"
+ATUAL_REPO="SSH-PLUS-MANAGER"
+ATUAL_BRANCH="main"
+
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODO="completo"
 
@@ -116,19 +122,32 @@ fi
 # ------------------------------------------------- reescrita das URLs (raw)
 echo ""
 amarelo "  [3/5] Apontando as URLs para o SEU repositorio..."
-DE="$UPSTREAM_USER/$UPSTREAM_REPO/$UPSTREAM_BRANCH"
 PARA="$GH_USER/$GH_REPO/$GH_BRANCH"
-DE2="$UPSTREAM_USER/$UPSTREAM_REPO"
 PARA2="$GH_USER/$GH_REPO"
 ALTERADOS=0
 while IFS= read -r -d '' arq; do
 	grep -Iq . "$arq" 2>/dev/null || continue # pula binarios
-	if grep -q "$DE2" "$arq" 2>/dev/null; then
-		sed -i "s|$DE|$PARA|g; s|$DE2|$PARA2|g" "$arq"
-		ALTERADOS=$((ALTERADOS + 1))
-	fi
+	mudou=0
+	for par in "$UPSTREAM_USER/$UPSTREAM_REPO/$UPSTREAM_BRANCH|$UPSTREAM_USER/$UPSTREAM_REPO" \
+		"$ATUAL_USER/$ATUAL_REPO/$ATUAL_BRANCH|$ATUAL_USER/$ATUAL_REPO"; do
+		DE="${par%%|*}"
+		DE2="${par##*|}"
+		[[ "$DE2" == "$PARA2" ]] && continue # ja e o destino
+		if grep -q "$DE2" "$arq" 2>/dev/null; then
+			sed -i "s|$DE|$PARA|g; s|$DE2|$PARA2|g" "$arq"
+			mudou=1
+		fi
+	done
+	[[ "$mudou" == "1" ]] && ALTERADOS=$((ALTERADOS + 1))
 done < <(find "$TMP/repo" -type f -print0)
 verde "        $ALTERADOS arquivo(s) atualizado(s)."
+
+# nos arquivos .md, os links de CREDITO ao projeto original nao devem apontar
+# para o repositorio novo - so as URLs "raw" (de download) e que mudam
+while IFS= read -r -d '' md; do
+	sed -i "s|github.com/$PARA2/blob|github.com/$UPSTREAM_USER/$UPSTREAM_REPO/blob|g" "$md"
+	sed -i "s|(https://github.com/$PARA2)|(https://github.com/$UPSTREAM_USER/$UPSTREAM_REPO)|g" "$md"
+done < <(find "$TMP/repo" -maxdepth 1 -name '*.md' -print0)
 
 # ------------------------------------------------------------- aviso 100 MB
 GRANDES=$(find "$TMP/repo" -type f -size +100M | wc -l)

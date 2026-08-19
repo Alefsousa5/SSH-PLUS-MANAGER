@@ -2,7 +2,7 @@
 
 barra="\033[0m\e[34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 MIP_CMD="/bin/mip"
-SSHPLUS_SCRIPT="https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master"
+SSHPLUS_SCRIPT="https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main"
 
 # Crear acceso rápido si no existe
 [[ ! -e $MIP_CMD ]] && echo "/root/sshplus.sh" > $MIP_CMD && chmod +x $MIP_CMD
