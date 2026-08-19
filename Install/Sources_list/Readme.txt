@@ -8,11 +8,11 @@ cp /etc/apt/sources.list /etc/apt/sources.list.bak
 
 🔧 Ubuntu 16.04 (Xenial)
 
-wget -O /etc/apt/sources.list https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master/Install/Sources_list/16.04/sources.list
+wget -O /etc/apt/sources.list https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/Install/Sources_list/16.04/sources.list
 
 🔧 Ubuntu 18.04 (Bionic)
 
-wget -O /etc/apt/sources.list https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master/Install/Sources_list/18.04/sources.list
+wget -O /etc/apt/sources.list https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/Install/Sources_list/18.04/sources.list
 
 📌 Luego de actualizar los repositorios, ejecuta:
 
