@@ -1,0 +1,955 @@
+#!/bin/bash
+#=========================================================================
+#   SCRIPT : XRAY MANAGER (SSHPLUS MANAGER)
+#   DESC   : Instalador e gerenciador completo do Xray-core para VPS
+#   PROTO  : VLESS-WS / VMESS-WS / VLESS-REALITY / VLESS-WS-TLS
+#   USO    : xray-manager            -> abre o menu
+#            xray-manager --exp-check -> remove usuarios vencidos (cron)
+#=========================================================================
+
+#------------------------------- CORES ----------------------------------
+RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'
+CYAN='\033[1;36m'; WHITE='\033[1;37m'; SCOLOR='\033[0m'
+BARRA="${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${SCOLOR}"
+
+#------------------------------ CAMINHOS --------------------------------
+XR_BIN="/usr/local/bin/xray"
+XR_DIRC="/usr/local/etc/xray"
+XR_CONF="$XR_DIRC/config.json"
+XR_SVC="xray"
+XR_DIR="/etc/xray-manager"
+XR_DB="$XR_DIR/users.db"          # formato: nome|uuid|validade(AAAA-MM-DD)
+XR_SET="$XR_DIR/settings.conf"
+XR_LOG="/var/log/xray"
+XR_SELF="/bin/xray-manager"
+XR_REPO="https://github.com/XTLS/Xray-core/releases/latest/download"
+
+#---------------------------- UTILITARIOS -------------------------------
+msg() {
+	case $1 in
+	ok) echo -e "${GREEN}$2${SCOLOR}" ;;
+	erro) echo -e "${RED}$2${SCOLOR}" ;;
+	aviso) echo -e "${YELLOW}$2${SCOLOR}" ;;
+	*) echo -e "${WHITE}$2${SCOLOR}" ;;
+	esac
+}
+
+titulo() {
+	clear
+	local t="$1" larg=50 pad
+	pad=$(((larg - ${#t}) / 2))
+	[[ $pad -lt 0 ]] && pad=0
+	printf "\E[44;1;37m%*s%s%*s\E[0m\n" "$pad" "" "$t" "$((larg - pad - ${#t}))" ""
+	echo ""
+}
+
+pausa() {
+	echo ""
+	echo -ne "${RED}ENTER ${YELLOW}para voltar ao ${GREEN}MENU${WHITE}: ${SCOLOR}"
+	read -r
+}
+
+fun_bar() {
+	comando="$1"
+	(
+		[[ -e $HOME/fim ]] && rm -f "$HOME/fim"
+		eval "$comando" >/dev/null 2>&1
+		touch "$HOME/fim"
+	) >/dev/null 2>&1 &
+	tput civis
+	echo -ne "${YELLOW}AGUARDE ${WHITE}- ${YELLOW}["
+	while true; do
+		for ((i = 0; i < 18; i++)); do
+			echo -ne "${RED}#"
+			sleep 0.1s
+		done
+		[[ -e $HOME/fim ]] && rm -f "$HOME/fim" && break
+		echo -e "${YELLOW}]"
+		sleep 1s
+		tput cuu1
+		tput dl1
+		echo -ne "${YELLOW}AGUARDE ${WHITE}- ${YELLOW}["
+	done
+	echo -e "${YELLOW}]${WHITE} -${GREEN} OK !${SCOLOR}"
+	tput cnorm
+}
+
+verif_root() {
+	[[ "$(id -u)" != "0" ]] && {
+		msg erro "\nVOCÊ PRECISA EXECUTAR ESTE SCRIPT COMO ROOT!\n"
+		exit 1
+	}
+}
+
+verif_porta() {
+	# $1 = porta | retorna 1 se estiver em uso por outro serviço
+	local p="$1"
+	local uso
+	uso=$( (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E "[:.]$p[[:space:]]" | grep -v "$XR_SVC")
+	[[ -n "$uso" ]] && return 1
+	return 0
+}
+
+meu_ip() {
+	local ip
+	[[ -e /etc/IP ]] && ip=$(cat /etc/IP 2>/dev/null | tr -d '[:space:]')
+	[[ -z "$ip" ]] && ip=$(wget -qO- -T 5 ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]')
+	[[ -z "$ip" ]] && ip=$(curl -s -m 5 https://api.ipify.org 2>/dev/null)
+	[[ -z "$ip" ]] && ip=$(hostname -I | awk '{print $1}')
+	echo "$ip"
+}
+
+gerar_uuid() {
+	if [[ -e /proc/sys/kernel/random/uuid ]]; then
+		cat /proc/sys/kernel/random/uuid
+	elif command -v uuidgen >/dev/null 2>&1; then
+		uuidgen
+	else
+		"$XR_BIN" uuid 2>/dev/null
+	fi
+}
+
+arquitetura() {
+	case "$(uname -m)" in
+	x86_64 | amd64) echo "Xray-linux-64.zip" ;;
+	aarch64 | arm64) echo "Xray-linux-arm64-v8a.zip" ;;
+	armv7l | armv7) echo "Xray-linux-arm32-v7a.zip" ;;
+	armv6l) echo "Xray-linux-arm32-v6.zip" ;;
+	i386 | i686) echo "Xray-linux-32.zip" ;;
+	*) echo "Xray-linux-64.zip" ;;
+	esac
+}
+
+gerar_chaves_reality() {
+	# Compatível com os dois formatos de saída do "xray x25519":
+	#   antigo -> "Private key: ..." / "Public key: ..."
+	#   novo   -> "PrivateKey: ..."  / "Password: ..." (Password = chave pública)
+	local keys linha chave valor
+	keys=$("$XR_BIN" x25519 2>/dev/null)
+	REALITY_PRIV=""
+	REALITY_PUB=""
+	while IFS= read -r linha; do
+		[[ "$linha" != *:* ]] && continue
+		chave=$(echo "${linha%%:*}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+		valor=$(echo "${linha#*:}" | tr -d '[:space:]')
+		[[ -z "$valor" ]] && continue
+		case "$chave" in
+		privatekey) REALITY_PRIV="$valor" ;;
+		publickey) REALITY_PUB="$valor" ;;
+		password*) [[ -z "$REALITY_PUB" ]] && REALITY_PUB="$valor" ;;
+		esac
+	done <<<"$keys"
+	# "Password (PublicKey)" vira a chave "password(publickey)" - já tratado acima
+	[[ -z "$REALITY_PUB" ]] && REALITY_PUB=$(echo "$keys" | grep -iE '^ *(public|password)' | head -1 | sed 's/^[^:]*://' | tr -d '[:space:]')
+}
+
+carregar_set() {
+	[[ -e $XR_SET ]] && source "$XR_SET"
+	: "${PORT_WS:=80}"
+	: "${PORT_VMESS:=8080}"
+	: "${PORT_REALITY:=443}"
+	: "${PORT_TLS:=2053}"
+	: "${PATH_WS:=/sshplus}"
+	: "${SNI_REALITY:=www.microsoft.com}"
+	: "${TLS_ON:=off}"
+	: "${DOMINIO:=}"
+	: "${REALITY_ON:=on}"
+}
+
+salvar_set() {
+	mkdir -p "$XR_DIR"
+	cat >"$XR_SET" <<EOF
+PORT_WS=$PORT_WS
+PORT_VMESS=$PORT_VMESS
+PORT_REALITY=$PORT_REALITY
+PORT_TLS=$PORT_TLS
+PATH_WS=$PATH_WS
+SNI_REALITY=$SNI_REALITY
+REALITY_ON=$REALITY_ON
+REALITY_PRIV=$REALITY_PRIV
+REALITY_PUB=$REALITY_PUB
+REALITY_SID=$REALITY_SID
+TLS_ON=$TLS_ON
+DOMINIO=$DOMINIO
+EOF
+}
+
+instalado() { [[ -e $XR_BIN ]]; }
+
+#------------------------- GERACAO DO CONFIG ----------------------------
+gerar_config() {
+	carregar_set
+	mkdir -p "$XR_DIRC" "$XR_DIR" "$XR_LOG"
+
+	local tls_inbound=""
+	if [[ "$TLS_ON" == "on" && -n "$DOMINIO" ]]; then
+		tls_inbound=$(
+			cat <<EOF
+,
+    {
+      "tag": "vless-ws-tls",
+      "listen": "0.0.0.0",
+      "port": $PORT_TLS,
+      "protocol": "vless",
+      "settings": { "decryption": "none", "clients": [] },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "$XR_DIR/cert/fullchain.pem",
+              "keyFile": "$XR_DIR/cert/privkey.pem"
+            }
+          ]
+        },
+        "wsSettings": { "path": "$PATH_WS" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    }
+EOF
+		)
+	fi
+
+	local reality_inbound=""
+	if [[ "$REALITY_ON" == "on" ]]; then
+		reality_inbound=$(
+			cat <<EOF
+,
+    {
+      "tag": "vless-reality",
+      "listen": "0.0.0.0",
+      "port": $PORT_REALITY,
+      "protocol": "vless",
+      "settings": { "decryption": "none", "clients": [] },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$SNI_REALITY:443",
+          "xver": 0,
+          "serverNames": ["$SNI_REALITY"],
+          "privateKey": "$REALITY_PRIV",
+          "shortIds": ["$REALITY_SID"]
+        }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    }
+EOF
+		)
+	fi
+
+	cat >"$XR_CONF" <<EOF
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "$XR_LOG/access.log",
+    "error": "$XR_LOG/error.log"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-ws",
+      "listen": "0.0.0.0",
+      "port": $PORT_WS,
+      "protocol": "vless",
+      "settings": { "decryption": "none", "clients": [] },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "$PATH_WS" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    },
+    {
+      "tag": "vmess-ws",
+      "listen": "0.0.0.0",
+      "port": $PORT_VMESS,
+      "protocol": "vmess",
+      "settings": { "clients": [] },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "$PATH_WS" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    }$reality_inbound$tls_inbound
+  ],
+  "outbounds": [
+    { "protocol": "freedom", "tag": "direct" },
+    { "protocol": "blackhole", "tag": "block" }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "block" }
+    ]
+  }
+}
+EOF
+	aplicar_usuarios
+}
+
+aplicar_usuarios() {
+	# reconstroi a lista de clients a partir do banco de dados
+	[[ ! -e $XR_CONF ]] && return
+	local tmp="/tmp/xr-build.json"
+	local _n _u _e
+	cp "$XR_CONF" "$tmp"
+	jq '.inbounds |= map(.settings.clients = [])' "$tmp" >"$tmp.n" && mv "$tmp.n" "$tmp"
+	if [[ -s $XR_DB ]]; then
+		while IFS='|' read -r _n _u _e; do
+			[[ -z "$_u" ]] && continue
+			jq --arg u "$_u" --arg e "$_n" '
+				.inbounds |= map(
+					if .protocol=="vless" and .streamSettings.security=="reality" then
+						.settings.clients += [{"id":$u,"email":$e,"flow":"xtls-rprx-vision"}]
+					elif .protocol=="vless" then
+						.settings.clients += [{"id":$u,"email":$e}]
+					elif .protocol=="vmess" then
+						.settings.clients += [{"id":$u,"email":$e,"alterId":0}]
+					else . end)' "$tmp" >"$tmp.n" && mv "$tmp.n" "$tmp"
+		done <"$XR_DB"
+	fi
+	mv "$tmp" "$XR_CONF"
+	systemctl restart $XR_SVC >/dev/null 2>&1
+}
+
+#------------------------------- LINKS ----------------------------------
+mostrar_links() {
+	# $1 = nome  $2 = uuid  $3 = validade
+	carregar_set
+	local nome="$1" uuid="$2" exp="$3"
+	local ip host_ws vmess_json
+	ip=$(meu_ip)
+	host_ws="$ip"
+	[[ -n "$DOMINIO" ]] && host_ws="$DOMINIO"
+	local pathenc="${PATH_WS//\//%2F}"
+
+	echo -e "$BARRA"
+	echo -e "${YELLOW}USUÁRIO ${WHITE}: ${GREEN}$nome${SCOLOR}"
+	echo -e "${YELLOW}UUID    ${WHITE}: ${GREEN}$uuid${SCOLOR}"
+	echo -e "${YELLOW}VALIDADE${WHITE}: ${GREEN}$exp${SCOLOR}"
+	echo -e "$BARRA"
+
+	echo -e "${CYAN}• VLESS - WEBSOCKET (SEM TLS) - PORTA $PORT_WS${SCOLOR}"
+	LINK_VLESS="vless://$uuid@$host_ws:$PORT_WS?encryption=none&security=none&type=ws&host=$host_ws&path=$pathenc#$nome"
+	echo -e "${WHITE}$LINK_VLESS${SCOLOR}\n"
+
+	vmess_json="{\"v\":\"2\",\"ps\":\"$nome\",\"add\":\"$host_ws\",\"port\":\"$PORT_VMESS\",\"id\":\"$uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$host_ws\",\"path\":\"$PATH_WS\",\"tls\":\"\"}"
+	echo -e "${CYAN}• VMESS - WEBSOCKET (SEM TLS) - PORTA $PORT_VMESS${SCOLOR}"
+	LINK_VMESS="vmess://$(echo -n "$vmess_json" | base64 -w0)"
+	echo -e "${WHITE}$LINK_VMESS${SCOLOR}\n"
+
+	if [[ "$REALITY_ON" == "on" ]]; then
+		echo -e "${CYAN}• VLESS - REALITY (VISION) - PORTA $PORT_REALITY${SCOLOR}"
+		LINK_REALITY="vless://$uuid@$ip:$PORT_REALITY?encryption=none&security=reality&sni=$SNI_REALITY&fp=chrome&pbk=$REALITY_PUB&sid=$REALITY_SID&type=tcp&flow=xtls-rprx-vision#$nome"
+		echo -e "${WHITE}$LINK_REALITY${SCOLOR}\n"
+	fi
+
+	if [[ "$TLS_ON" == "on" && -n "$DOMINIO" ]]; then
+		echo -e "${CYAN}• VLESS - WEBSOCKET + TLS - PORTA $PORT_TLS${SCOLOR}"
+		LINK_TLS="vless://$uuid@$DOMINIO:$PORT_TLS?encryption=none&security=tls&sni=$DOMINIO&type=ws&host=$DOMINIO&path=$pathenc#$nome-tls"
+		echo -e "${WHITE}$LINK_TLS${SCOLOR}\n"
+	fi
+	echo -e "$BARRA"
+}
+
+qrcode_user() {
+	command -v qrencode >/dev/null 2>&1 || {
+		msg aviso "\nINSTALANDO QRENCODE..."
+		apt-get install -y qrencode >/dev/null 2>&1
+	}
+	command -v qrencode >/dev/null 2>&1 || {
+		msg erro "\nQRENCODE NÃO DISPONÍVEL!"
+		return
+	}
+	echo -e "\n${YELLOW}QR CODE (VLESS WS):${SCOLOR}"
+	qrencode -t ANSIUTF8 "$LINK_VLESS"
+}
+
+#---------------------------- INSTALACAO --------------------------------
+inst_deps() {
+	apt-get update -y
+	apt-get install -y unzip wget curl jq net-tools lsof ca-certificates
+}
+
+inst_xray() {
+	local zip
+	zip=$(arquitetura)
+	mkdir -p "$XR_DIRC" "$XR_DIR" "$XR_LOG"
+	cd /tmp || return 1
+	rm -rf xray-tmp "$zip"
+	wget -q "$XR_REPO/$zip" -O "$zip" || curl -sLo "$zip" "$XR_REPO/$zip"
+	unzip -o -q "$zip" -d xray-tmp
+	install -m 755 xray-tmp/xray "$XR_BIN"
+	[[ -e xray-tmp/geoip.dat ]] && cp -f xray-tmp/geoip.dat xray-tmp/geosite.dat "$XR_DIRC"/ 2>/dev/null
+	rm -rf xray-tmp "$zip"
+
+	gerar_chaves_reality
+	REALITY_SID=$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
+	salvar_set
+
+	gerar_config
+
+	cat >/etc/systemd/system/$XR_SVC.service <<EOF
+[Unit]
+Description=Xray Service (SSHPLUS MANAGER)
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+NoNewPrivileges=true
+ExecStart=$XR_BIN run -config $XR_CONF
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+	systemctl enable $XR_SVC
+	systemctl restart $XR_SVC
+	touch "$XR_DB"
+
+	# firewall
+	if [[ -f /usr/sbin/ufw ]]; then
+		ufw allow "$PORT_WS"/tcp
+		ufw allow "$PORT_VMESS"/tcp
+		ufw allow "$PORT_REALITY"/tcp
+		[[ "$TLS_ON" == "on" ]] && ufw allow "$PORT_TLS"/tcp
+	fi
+
+	# cron de expiracao
+	(
+		crontab -l 2>/dev/null | grep -v 'xray-manager --exp-check'
+		echo "0 */6 * * * $XR_SELF --exp-check >/dev/null 2>&1"
+	) | crontab -
+}
+
+fun_instalar() {
+	titulo "INSTALADOR XRAY"
+	if instalado; then
+		msg aviso "O XRAY JÁ ESTÁ INSTALADO NESTE SERVIDOR!"
+		pausa
+		return
+	fi
+	carregar_set
+	echo -e "${YELLOW}DEFINA AS PORTAS (ENTER = PADRÃO)${SCOLOR}\n"
+
+	echo -ne "${GREEN}PORTA VLESS WS  ${YELLOW}(padrão $PORT_WS): ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_WS=$p
+	echo -ne "${GREEN}PORTA VMESS WS  ${YELLOW}(padrão $PORT_VMESS): ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_VMESS=$p
+	echo -ne "${GREEN}PORTA REALITY   ${YELLOW}(padrão $PORT_REALITY): ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_REALITY=$p
+	echo -ne "${GREEN}PATH WEBSOCKET  ${YELLOW}(padrão $PATH_WS): ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PATH_WS=$p
+	[[ "${PATH_WS:0:1}" != "/" ]] && PATH_WS="/$PATH_WS"
+	echo -ne "${GREEN}SNI DO REALITY  ${YELLOW}(padrão $SNI_REALITY): ${WHITE}"
+	read -r p && [[ -n "$p" ]] && SNI_REALITY=$p
+
+	for pt in "$PORT_WS" "$PORT_VMESS" "$PORT_REALITY"; do
+		verif_porta "$pt" || {
+			msg erro "\nA PORTA $pt JÁ ESTÁ EM USO POR OUTRO SERVIÇO!"
+			pausa
+			return
+		}
+	done
+
+	echo ""
+	msg ok "INSTALANDO DEPENDÊNCIAS..."
+	fun_bar 'inst_deps'
+	msg ok "\nBAIXANDO E CONFIGURANDO O XRAY..."
+	fun_bar 'inst_xray'
+
+	if instalado && systemctl is-active --quiet $XR_SVC; then
+		msg ok "\nXRAY INSTALADO E ATIVO COM SUCESSO!"
+		echo -e "${YELLOW}VERSÃO ${WHITE}: ${GREEN}$($XR_BIN version 2>/dev/null | head -1)${SCOLOR}"
+		echo -e "${YELLOW}PORTAS ${WHITE}: ${GREEN}VLESS-WS $PORT_WS | VMESS-WS $PORT_VMESS | REALITY $PORT_REALITY${SCOLOR}"
+		echo -e "${YELLOW}PATH   ${WHITE}: ${GREEN}$PATH_WS${SCOLOR}"
+	else
+		msg erro "\nFALHA NA INSTALAÇÃO! VERIFIQUE A CONEXÃO DO VPS."
+		journalctl -u $XR_SVC -n 10 --no-pager 2>/dev/null
+	fi
+	pausa
+}
+
+fun_remover() {
+	titulo "REMOVER XRAY"
+	instalado || {
+		msg erro "O XRAY NÃO ESTÁ INSTALADO!"
+		pausa
+		return
+	}
+	echo -ne "${GREEN}DESEJA REALMENTE REMOVER O XRAY ${RED}? ${YELLOW}[s/n]: ${WHITE}"
+	read -r resp
+	[[ "$resp" != @(s|S|y|Y) ]] && return
+	rem_xray() {
+		systemctl stop $XR_SVC
+		systemctl disable $XR_SVC
+		rm -f /etc/systemd/system/$XR_SVC.service
+		rm -f "$XR_BIN"
+		rm -rf "$XR_DIRC" "$XR_DIR" "$XR_LOG"
+		systemctl daemon-reload
+		crontab -l 2>/dev/null | grep -v 'xray-manager --exp-check' | crontab -
+	}
+	echo ""
+	fun_bar 'rem_xray'
+	msg ok "\nXRAY REMOVIDO COM SUCESSO!"
+	pausa
+}
+
+fun_atualizar() {
+	titulo "ATUALIZAR XRAY-CORE"
+	instalado || {
+		msg erro "O XRAY NÃO ESTÁ INSTALADO!"
+		pausa
+		return
+	}
+	echo -e "${YELLOW}VERSÃO ATUAL${WHITE}: ${GREEN}$($XR_BIN version 2>/dev/null | head -1)${SCOLOR}\n"
+	upd_xray() {
+		local zip
+		zip=$(arquitetura)
+		cd /tmp || return
+		rm -rf xray-tmp "$zip"
+		wget -q "$XR_REPO/$zip" -O "$zip"
+		unzip -o -q "$zip" -d xray-tmp
+		systemctl stop $XR_SVC
+		install -m 755 xray-tmp/xray "$XR_BIN"
+		[[ -e xray-tmp/geoip.dat ]] && cp -f xray-tmp/geoip.dat xray-tmp/geosite.dat "$XR_DIRC"/ 2>/dev/null
+		rm -rf xray-tmp "$zip"
+		systemctl start $XR_SVC
+	}
+	fun_bar 'upd_xray'
+	msg ok "\nNOVA VERSÃO: $($XR_BIN version 2>/dev/null | head -1)"
+	pausa
+}
+
+#--------------------------- USUARIOS -----------------------------------
+fun_criar() {
+	titulo "CRIAR USUÁRIO XRAY"
+	instalado || {
+		msg erro "INSTALE O XRAY PRIMEIRO!"
+		pausa
+		return
+	}
+	carregar_set
+	echo -ne "${GREEN}NOME DO USUÁRIO ${WHITE}: "
+	read -r nome
+	nome=$(echo "$nome" | tr -d ' |')
+	[[ -z "$nome" ]] && {
+		msg erro "\nNOME INVÁLIDO!"
+		pausa
+		return
+	}
+	grep -q "^$nome|" "$XR_DB" 2>/dev/null && {
+		msg erro "\nESTE USUÁRIO JÁ EXISTE!"
+		pausa
+		return
+	}
+	echo -ne "${GREEN}DIAS DE VALIDADE ${YELLOW}(padrão 30)${WHITE}: "
+	read -r dias
+	[[ -z "$dias" ]] && dias=30
+	echo -ne "${GREEN}UUID ${YELLOW}(ENTER = gerar automático)${WHITE}: "
+	read -r uuid
+	[[ -z "$uuid" ]] && uuid=$(gerar_uuid)
+	local exp
+	exp=$(date -d "+$dias days" +%Y-%m-%d 2>/dev/null || date -v+"${dias}"d +%Y-%m-%d)
+
+	echo "$nome|$uuid|$exp" >>"$XR_DB"
+	echo ""
+	msg ok "APLICANDO CONFIGURAÇÃO..."
+	fun_bar 'aplicar_usuarios'
+	echo ""
+	msg ok "USUÁRIO CRIADO COM SUCESSO!\n"
+	mostrar_links "$nome" "$uuid" "$exp"
+	echo -ne "\n${GREEN}DESEJA EXIBIR O QR CODE ${YELLOW}[s/n]: ${WHITE}"
+	read -r q
+	[[ "$q" == @(s|S|y|Y) ]] && qrcode_user
+	pausa
+}
+
+fun_remover_user() {
+	titulo "REMOVER USUÁRIO XRAY"
+	instalado || {
+		msg erro "INSTALE O XRAY PRIMEIRO!"
+		pausa
+		return
+	}
+	[[ ! -s $XR_DB ]] && {
+		msg erro "NENHUM USUÁRIO CADASTRADO!"
+		pausa
+		return
+	}
+	awk -F'|' '{printf "\033[1;31m[\033[1;36m%02d\033[1;31m] \033[1;37m• \033[1;33m%-20s \033[1;37m%s\033[0m\n", NR, $1, $3}' "$XR_DB"
+	echo ""
+	echo -ne "${GREEN}NÚMERO OU NOME DO USUÁRIO ${WHITE}: "
+	read -r alvo
+	[[ -z "$alvo" ]] && return
+	local nome
+	if [[ "$alvo" =~ ^[0-9]+$ ]]; then
+		nome=$(awk -F'|' -v n="$alvo" 'NR==n+0 {print $1}' "$XR_DB")
+	else
+		nome="$alvo"
+	fi
+	grep -q "^$nome|" "$XR_DB" 2>/dev/null || {
+		msg erro "\nUSUÁRIO NÃO ENCONTRADO!"
+		pausa
+		return
+	}
+	sed -i "/^$nome|/d" "$XR_DB"
+	echo ""
+	fun_bar 'aplicar_usuarios'
+	msg ok "\nUSUÁRIO $nome REMOVIDO COM SUCESSO!"
+	pausa
+}
+
+fun_renovar() {
+	titulo "RENOVAR USUÁRIO XRAY"
+	[[ ! -s $XR_DB ]] && {
+		msg erro "NENHUM USUÁRIO CADASTRADO!"
+		pausa
+		return
+	}
+	awk -F'|' '{printf "\033[1;31m[\033[1;36m%02d\033[1;31m] \033[1;37m• \033[1;33m%-20s \033[1;37m%s\033[0m\n", NR, $1, $3}' "$XR_DB"
+	echo ""
+	echo -ne "${GREEN}NÚMERO OU NOME DO USUÁRIO ${WHITE}: "
+	read -r alvo
+	[[ -z "$alvo" ]] && return
+	local nome
+	if [[ "$alvo" =~ ^[0-9]+$ ]]; then
+		nome=$(awk -F'|' -v n="$alvo" 'NR==n+0 {print $1}' "$XR_DB")
+	else
+		nome="$alvo"
+	fi
+	grep -q "^$nome|" "$XR_DB" 2>/dev/null || {
+		msg erro "\nUSUÁRIO NÃO ENCONTRADO!"
+		pausa
+		return
+	}
+	echo -ne "${GREEN}ADICIONAR QUANTOS DIAS ${YELLOW}(padrão 30)${WHITE}: "
+	read -r dias
+	[[ -z "$dias" ]] && dias=30
+	local atual novo hoje
+	atual=$(grep "^$nome|" "$XR_DB" | cut -d'|' -f3)
+	hoje=$(date +%Y-%m-%d)
+	[[ "$atual" < "$hoje" ]] && atual="$hoje"
+	novo=$(date -d "$atual +$dias days" +%Y-%m-%d 2>/dev/null)
+	awk -F'|' -v n="$nome" -v d="$novo" 'BEGIN{OFS="|"} {if($1==n){$3=d} print}' "$XR_DB" >"$XR_DB.tmp" && mv "$XR_DB.tmp" "$XR_DB"
+	echo ""
+	fun_bar 'aplicar_usuarios'
+	msg ok "\nUSUÁRIO $nome RENOVADO ATÉ $novo!"
+	pausa
+}
+
+fun_listar() {
+	titulo "USUÁRIOS XRAY"
+	[[ ! -s $XR_DB ]] && {
+		msg erro "NENHUM USUÁRIO CADASTRADO!"
+		pausa
+		return
+	}
+	local hoje total
+	hoje=$(date +%Y-%m-%d)
+	total=$(wc -l <"$XR_DB")
+	echo -e "$BARRA"
+	printf "${WHITE}%-3s %-18s %-38s %-11s${SCOLOR}\n" "N°" "USUÁRIO" "UUID" "VALIDADE"
+	echo -e "$BARRA"
+	local i=0
+	while IFS='|' read -r nome uuid exp; do
+		[[ -z "$nome" ]] && continue
+		i=$((i + 1))
+		local cor="$GREEN"
+		[[ "$exp" < "$hoje" ]] && cor="$RED"
+		printf "${YELLOW}%-3s ${WHITE}%-18s ${CYAN}%-38s ${cor}%-11s${SCOLOR}\n" "$i" "$nome" "$uuid" "$exp"
+	done <"$XR_DB"
+	echo -e "$BARRA"
+	echo -e "${YELLOW}TOTAL DE USUÁRIOS${WHITE}: ${GREEN}$total${SCOLOR}"
+	pausa
+}
+
+fun_ver_links() {
+	titulo "LINKS DE CONEXÃO"
+	[[ ! -s $XR_DB ]] && {
+		msg erro "NENHUM USUÁRIO CADASTRADO!"
+		pausa
+		return
+	}
+	awk -F'|' '{printf "\033[1;31m[\033[1;36m%02d\033[1;31m] \033[1;37m• \033[1;33m%-20s \033[1;37m%s\033[0m\n", NR, $1, $3}' "$XR_DB"
+	echo ""
+	echo -ne "${GREEN}NÚMERO OU NOME DO USUÁRIO ${WHITE}: "
+	read -r alvo
+	[[ -z "$alvo" ]] && return
+	local linha
+	if [[ "$alvo" =~ ^[0-9]+$ ]]; then
+		linha=$(awk -v n="$alvo" 'NR==n+0' "$XR_DB")
+	else
+		linha=$(grep "^$alvo|" "$XR_DB")
+	fi
+	[[ -z "$linha" ]] && {
+		msg erro "\nUSUÁRIO NÃO ENCONTRADO!"
+		pausa
+		return
+	}
+	IFS='|' read -r nome uuid exp <<<"$linha"
+	clear
+	titulo "LINKS - $nome"
+	mostrar_links "$nome" "$uuid" "$exp"
+	echo -ne "\n${GREEN}DESEJA EXIBIR O QR CODE ${YELLOW}[s/n]: ${WHITE}"
+	read -r q
+	[[ "$q" == @(s|S|y|Y) ]] && qrcode_user
+	pausa
+}
+
+fun_exp_check() {
+	# executado pelo cron - remove usuarios vencidos
+	[[ ! -s $XR_DB ]] && exit 0
+	local hoje mudou=0
+	hoje=$(date +%Y-%m-%d)
+	: >"$XR_DB.keep"
+	while IFS='|' read -r nome uuid exp; do
+		[[ -z "$nome" ]] && continue
+		if [[ -n "$exp" && "$exp" < "$hoje" ]]; then
+			mudou=1
+			logger -t xray-manager "usuario expirado removido: $nome" 2>/dev/null
+		else
+			echo "$nome|$uuid|$exp" >>"$XR_DB.keep"
+		fi
+	done <"$XR_DB"
+	mv "$XR_DB.keep" "$XR_DB"
+	[[ $mudou -eq 1 ]] && aplicar_usuarios
+	exit 0
+}
+
+#--------------------------- CONFIGURACOES ------------------------------
+fun_portas() {
+	titulo "ALTERAR PORTAS / PATH"
+	instalado || {
+		msg erro "INSTALE O XRAY PRIMEIRO!"
+		pausa
+		return
+	}
+	carregar_set
+	echo -e "${YELLOW}ENTER MANTÉM O VALOR ATUAL${SCOLOR}\n"
+	echo -ne "${GREEN}PORTA VLESS WS  ${YELLOW}[$PORT_WS]: ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_WS=$p
+	echo -ne "${GREEN}PORTA VMESS WS  ${YELLOW}[$PORT_VMESS]: ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_VMESS=$p
+	echo -ne "${GREEN}PORTA REALITY   ${YELLOW}[$PORT_REALITY]: ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PORT_REALITY=$p
+	echo -ne "${GREEN}PATH WEBSOCKET  ${YELLOW}[$PATH_WS]: ${WHITE}"
+	read -r p && [[ -n "$p" ]] && PATH_WS=$p
+	[[ "${PATH_WS:0:1}" != "/" ]] && PATH_WS="/$PATH_WS"
+	echo -ne "${GREEN}SNI DO REALITY  ${YELLOW}[$SNI_REALITY]: ${WHITE}"
+	read -r p && [[ -n "$p" ]] && SNI_REALITY=$p
+	salvar_set
+	echo ""
+	fun_bar 'gerar_config'
+	if [[ -f /usr/sbin/ufw ]]; then
+		ufw allow "$PORT_WS"/tcp >/dev/null 2>&1
+		ufw allow "$PORT_VMESS"/tcp >/dev/null 2>&1
+		ufw allow "$PORT_REALITY"/tcp >/dev/null 2>&1
+	fi
+	msg ok "\nCONFIGURAÇÃO ATUALIZADA COM SUCESSO!"
+	pausa
+}
+
+fun_tls() {
+	titulo "TLS / DOMÍNIO"
+	instalado || {
+		msg erro "INSTALE O XRAY PRIMEIRO!"
+		pausa
+		return
+	}
+	carregar_set
+	if [[ "$TLS_ON" == "on" ]]; then
+		echo -e "${YELLOW}TLS ATIVO NO DOMÍNIO ${GREEN}$DOMINIO ${YELLOW}PORTA ${GREEN}$PORT_TLS${SCOLOR}\n"
+		echo -ne "${GREEN}DESEJA DESATIVAR O TLS ${YELLOW}[s/n]: ${WHITE}"
+		read -r r
+		[[ "$r" == @(s|S|y|Y) ]] && {
+			TLS_ON=off
+			salvar_set
+			fun_bar 'gerar_config'
+			msg ok "\nTLS DESATIVADO!"
+		}
+		pausa
+		return
+	fi
+	echo -e "${YELLOW}REQUISITOS: DOMÍNIO APONTADO PARA O IP DESTE VPS${SCOLOR}"
+	echo -e "${YELLOW}A PORTA 80 SERÁ USADA TEMPORARIAMENTE PARA VALIDAÇÃO${SCOLOR}\n"
+	echo -ne "${GREEN}DOMÍNIO ${WHITE}: "
+	read -r dom
+	[[ -z "$dom" ]] && return
+	echo -ne "${GREEN}PORTA TLS ${YELLOW}(padrão $PORT_TLS)${WHITE}: "
+	read -r p && [[ -n "$p" ]] && PORT_TLS=$p
+	DOMINIO="$dom"
+	emitir_cert() {
+		apt-get install -y certbot >/dev/null 2>&1
+		systemctl stop $XR_SVC >/dev/null 2>&1
+		certbot certonly --standalone --non-interactive --agree-tos \
+			--register-unsafely-without-email -d "$DOMINIO" >/dev/null 2>&1
+		mkdir -p "$XR_DIR/cert"
+		cp -L "/etc/letsencrypt/live/$DOMINIO/fullchain.pem" "$XR_DIR/cert/fullchain.pem" 2>/dev/null
+		cp -L "/etc/letsencrypt/live/$DOMINIO/privkey.pem" "$XR_DIR/cert/privkey.pem" 2>/dev/null
+		systemctl start $XR_SVC >/dev/null 2>&1
+	}
+	echo ""
+	msg ok "EMITINDO CERTIFICADO PARA $DOMINIO ..."
+	fun_bar 'emitir_cert'
+	if [[ -s "$XR_DIR/cert/fullchain.pem" ]]; then
+		TLS_ON=on
+		salvar_set
+		fun_bar 'gerar_config'
+		[[ -f /usr/sbin/ufw ]] && ufw allow "$PORT_TLS"/tcp >/dev/null 2>&1
+		msg ok "\nTLS ATIVADO COM SUCESSO NA PORTA $PORT_TLS!"
+	else
+		TLS_ON=off
+		DOMINIO=""
+		salvar_set
+		msg erro "\nFALHA AO EMITIR O CERTIFICADO! VERIFIQUE O DNS DO DOMÍNIO."
+	fi
+	pausa
+}
+
+fun_status() {
+	titulo "STATUS DO XRAY"
+	instalado || {
+		msg erro "O XRAY NÃO ESTÁ INSTALADO!"
+		pausa
+		return
+	}
+	carregar_set
+	local st
+	systemctl is-active --quiet $XR_SVC && st="${GREEN}ATIVO ◉" || st="${RED}PARADO ○"
+	echo -e "$BARRA"
+	echo -e "${YELLOW}SERVIÇO  ${WHITE}: $st${SCOLOR}"
+	echo -e "${YELLOW}VERSÃO   ${WHITE}: ${GREEN}$($XR_BIN version 2>/dev/null | head -1)${SCOLOR}"
+	echo -e "${YELLOW}IP       ${WHITE}: ${GREEN}$(meu_ip)${SCOLOR}"
+	echo -e "${YELLOW}VLESS WS ${WHITE}: ${GREEN}porta $PORT_WS  path $PATH_WS${SCOLOR}"
+	echo -e "${YELLOW}VMESS WS ${WHITE}: ${GREEN}porta $PORT_VMESS  path $PATH_WS${SCOLOR}"
+	[[ "$REALITY_ON" == "on" ]] && echo -e "${YELLOW}REALITY  ${WHITE}: ${GREEN}porta $PORT_REALITY  sni $SNI_REALITY${SCOLOR}"
+	[[ "$TLS_ON" == "on" ]] && echo -e "${YELLOW}WS + TLS ${WHITE}: ${GREEN}porta $PORT_TLS  domínio $DOMINIO${SCOLOR}"
+	echo -e "${YELLOW}USUÁRIOS ${WHITE}: ${GREEN}$(wc -l <"$XR_DB" 2>/dev/null || echo 0)${SCOLOR}"
+	echo -e "${YELLOW}CONFIG   ${WHITE}: ${GREEN}$XR_CONF${SCOLOR}"
+	echo -e "$BARRA"
+	echo -e "\n${YELLOW}PORTAS EM ESCUTA:${SCOLOR}"
+	(ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -i xray
+	echo ""
+	echo -e "${YELLOW}ÚLTIMOS LOGS:${SCOLOR}"
+	journalctl -u $XR_SVC -n 8 --no-pager 2>/dev/null | tail -8
+	pausa
+}
+
+fun_backup() {
+	titulo "BACKUP / RESTAURAR"
+	echo -e "${RED}[${CYAN}1${RED}] ${WHITE}• ${YELLOW}GERAR BACKUP${SCOLOR}"
+	echo -e "${RED}[${CYAN}2${RED}] ${WHITE}• ${YELLOW}RESTAURAR BACKUP${SCOLOR}"
+	echo -e "${RED}[${CYAN}0${RED}] ${WHITE}• ${YELLOW}VOLTAR${SCOLOR}"
+	echo ""
+	echo -ne "${GREEN}OPÇÃO ${YELLOW}? ${WHITE}"
+	read -r op
+	case $op in
+	1)
+		local arq="/root/xray-backup-$(date +%d-%m-%Y).tar.gz"
+		tar -czf "$arq" -C / etc/xray-manager usr/local/etc/xray/config.json >/dev/null 2>&1
+		msg ok "\nBACKUP SALVO EM: $arq"
+		;;
+	2)
+		echo -ne "${GREEN}CAMINHO DO ARQUIVO .tar.gz ${WHITE}: "
+		read -r arq
+		[[ ! -e "$arq" ]] && {
+			msg erro "\nARQUIVO NÃO ENCONTRADO!"
+			pausa
+			return
+		}
+		tar -xzf "$arq" -C / >/dev/null 2>&1
+		fun_bar 'aplicar_usuarios'
+		msg ok "\nBACKUP RESTAURADO COM SUCESSO!"
+		;;
+	*) return ;;
+	esac
+	pausa
+}
+
+#------------------------------- MENU -----------------------------------
+menu_xray() {
+	while true; do
+		carregar_set
+		clear
+		local sts susr
+		if instalado; then
+			systemctl is-active --quiet $XR_SVC && sts="${GREEN}◉ ONLINE" || sts="${RED}○ PARADO"
+		else
+			sts="${RED}○ NÃO INSTALADO"
+		fi
+		susr=$(wc -l <"$XR_DB" 2>/dev/null || echo 0)
+		echo -e "\E[44;1;37m                XRAY MANAGER  V1.0                 \E[0m"
+		echo -e "$BARRA"
+		echo -e "${YELLOW}STATUS ${WHITE}: $sts${SCOLOR}   ${YELLOW}USUÁRIOS ${WHITE}: ${GREEN}$susr${SCOLOR}"
+		instalado && echo -e "${YELLOW}PORTAS ${WHITE}: ${GREEN}WS $PORT_WS ${WHITE}| ${GREEN}VMESS $PORT_VMESS ${WHITE}| ${GREEN}REALITY $PORT_REALITY${SCOLOR}"
+		echo -e "$BARRA"
+		echo -e "${RED}[${CYAN}01${RED}] ${WHITE}• ${YELLOW}INSTALAR XRAY${SCOLOR}"
+		echo -e "${RED}[${CYAN}02${RED}] ${WHITE}• ${YELLOW}CRIAR USUÁRIO${SCOLOR}"
+		echo -e "${RED}[${CYAN}03${RED}] ${WHITE}• ${YELLOW}REMOVER USUÁRIO${SCOLOR}"
+		echo -e "${RED}[${CYAN}04${RED}] ${WHITE}• ${YELLOW}RENOVAR USUÁRIO${SCOLOR}"
+		echo -e "${RED}[${CYAN}05${RED}] ${WHITE}• ${YELLOW}LISTAR USUÁRIOS${SCOLOR}"
+		echo -e "${RED}[${CYAN}06${RED}] ${WHITE}• ${YELLOW}VER LINKS / QR CODE${SCOLOR}"
+		echo -e "${RED}[${CYAN}07${RED}] ${WHITE}• ${YELLOW}ALTERAR PORTAS / PATH${SCOLOR}"
+		echo -e "${RED}[${CYAN}08${RED}] ${WHITE}• ${YELLOW}TLS / DOMÍNIO${SCOLOR}"
+		echo -e "${RED}[${CYAN}09${RED}] ${WHITE}• ${YELLOW}STATUS E LOGS${SCOLOR}"
+		echo -e "${RED}[${CYAN}10${RED}] ${WHITE}• ${YELLOW}REINICIAR SERVIÇO${SCOLOR}"
+		echo -e "${RED}[${CYAN}11${RED}] ${WHITE}• ${YELLOW}ATUALIZAR XRAY-CORE${SCOLOR}"
+		echo -e "${RED}[${CYAN}12${RED}] ${WHITE}• ${YELLOW}BACKUP / RESTAURAR${SCOLOR}"
+		echo -e "${RED}[${CYAN}13${RED}] ${WHITE}• ${YELLOW}REMOVER XRAY${SCOLOR}"
+		echo -e "${RED}[${CYAN}00${RED}] ${WHITE}• ${YELLOW}SAIR${SCOLOR}"
+		echo -e "$BARRA"
+		echo -ne "${GREEN}SELECIONE UMA OPÇÃO ${YELLOW}? ${WHITE}"
+		read -r opc
+		case $opc in
+		1 | 01) fun_instalar ;;
+		2 | 02) fun_criar ;;
+		3 | 03) fun_remover_user ;;
+		4 | 04) fun_renovar ;;
+		5 | 05) fun_listar ;;
+		6 | 06) fun_ver_links ;;
+		7 | 07) fun_portas ;;
+		8 | 08) fun_tls ;;
+		9 | 09) fun_status ;;
+		10)
+			systemctl restart $XR_SVC >/dev/null 2>&1
+			msg ok "\nSERVIÇO REINICIADO!"
+			sleep 2
+			;;
+		11) fun_atualizar ;;
+		12) fun_backup ;;
+		13) fun_remover ;;
+		0 | 00)
+			clear
+			exit 0
+			;;
+		*)
+			msg erro "\nOPÇÃO INVÁLIDA!"
+			sleep 2
+			;;
+		esac
+	done
+}
+
+#------------------------------ INICIO ----------------------------------
+verif_root
+mkdir -p "$XR_DIR"
+[[ ! -e $XR_DB ]] && touch "$XR_DB"
+
+case "$1" in
+--exp-check) fun_exp_check ;;
+--install) fun_instalar ;;
+--status) fun_status ;;
+--list) fun_listar ;;
+*) menu_xray ;;
+esac
