@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Backup SSHD config
+cp /etc/ssh/sshd_config /etc/ssh/sshd_back_$RANDOM &>/dev/null
+
+# Acceso rápido
+echo "/bin/menu" > /bin/h && chmod +x /bin/h &>/dev/null
+
+# Descargar archivo de versión
+rm -rf "$HOME"/versao* &>/dev/null
+wget -qO "$HOME/versao" https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master/versao
+
+# Crear script de reinstalación
+echo "apt-get update -y; apt-get upgrade -y; wget https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master/Plus; chmod +x Plus; ./Plus" > /bin/sshplus
+chmod +x /bin/sshplus &>/dev/null
+
+# Descargar menús
+for version in V3 V2 V1; do
+  wget -qO /bin/menu$version https://raw.githubusercontent.com/AAAAAEXQOSyIpN2JZ0ehUQ/SSHPLUS-MANAGER-FREE/master/Install/Skin_Plus/menu$version/Install
+  chmod +x /bin/menu$version &>/dev/null
+done
+
+# Eliminar archivos de verificación del sistema
+rm -rf "$HOME"/systemverify* &>/dev/null
