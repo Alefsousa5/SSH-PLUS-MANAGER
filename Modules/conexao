@@ -1645,29 +1645,19 @@ exit 0' >$RCLOCAL
 		}
 	}
 
-	# ============================ V2RAY / XRAY ============================
-	V2X_DIR="/etc/v2x"
+	# ============================ XRAY (SOMENTE) ============================
+	V2X_DIR="/etc/v2x"  # somente XRAY
 
 	v2x_paths() {
-		# $1 = xray | v2ray
-		if [[ "$1" == "v2ray" ]]; then
-			VX_BIN="/usr/local/bin/v2ray"
-			VX_CONF="/usr/local/etc/v2ray/config.json"
-			VX_DIRC="/usr/local/etc/v2ray"
-			VX_SVC="v2ray"
-			VX_URL="https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip"
-			VX_ZIP="v2ray-linux-64.zip"
-			VX_EXE="v2ray"
-		else
-			VX_BIN="/usr/local/bin/xray"
-			VX_CONF="/usr/local/etc/xray/config.json"
-			VX_DIRC="/usr/local/etc/xray"
-			VX_SVC="xray"
-			VX_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-			VX_ZIP="Xray-linux-64.zip"
-			VX_EXE="xray"
-		fi
-		VX_DB="$V2X_DIR/users-$1.db"
+		# SOMENTE XRAY ATIVO (V2RAY REMOVIDO DO SCRIPT)
+		VX_BIN="/usr/local/bin/xray"
+		VX_CONF="/usr/local/etc/xray/config.json"
+		VX_DIRC="/usr/local/etc/xray"
+		VX_SVC="xray"
+		VX_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+		VX_ZIP="Xray-linux-64.zip"
+		VX_EXE="xray"
+		VX_DB="$V2X_DIR/users-xray.db"
 	}
 
 	v2x_uuid() {
@@ -1675,24 +1665,8 @@ exit 0' >$RCLOCAL
 	}
 
 	v2x_resolve() {
-		hasv=""; hasx=""
-		[[ -e /usr/local/bin/v2ray ]] && hasv=1
-		[[ -e /usr/local/bin/xray ]] && hasx=1
-		if [[ -n $hasv && -n $hasx ]]; then
-			echo -e "\033[1;33mQUAL NÚCLEO DESEJA GERENCIAR?\033[0m"
-			echo -e "\033[1;31m[1]\033[1;37m • \033[1;33mV2RAY\033[0m"
-			echo -e "\033[1;31m[2]\033[1;37m • \033[1;33mXRAY\033[0m"
-			echo ""
-			echo -ne "\033[1;32mOPÇÃO \033[1;33m? \033[1;37m"
-			read vc
-			[[ "$vc" == "2" ]] && VCORE="xray" || VCORE="v2ray"
-		elif [[ -n $hasv ]]; then
-			VCORE="v2ray"
-		elif [[ -n $hasx ]]; then
-			VCORE="xray"
-		else
-			VCORE=""
-		fi
+		# SOMENTE XRAY ATIVO (V2RAY REMOVIDO DO SCRIPT)
+		[[ -e /usr/local/bin/xray ]] && VCORE="xray" || VCORE=""
 	}
 
 	v2x_link() {
@@ -1811,7 +1785,7 @@ SVC
 
 	fun_v2x_create() {
 		v2x_resolve
-		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mNENHUM NÚCLEO INSTALADO! INSTALE O V2RAY OU O XRAY PRIMEIRO.\033[0m"; sleep 2; fun_v2x; }
+		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mXRAY NÃO INSTALADO! INSTALE O XRAY PRIMEIRO.\033[0m"; sleep 2; fun_v2x; }
 		v2x_paths "$VCORE"
 		VX_IP=$(cat /etc/IP 2>/dev/null)
 		VX_PORT_VLESS=$(jq -r '.inbounds[] | select(.tag=="vless") | .port // empty' $VX_CONF 2>/dev/null)
@@ -1838,7 +1812,7 @@ SVC
 
 	fun_v2x_remove() {
 		v2x_resolve
-		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mNENHUM NÚCLEO INSTALADO!\033[0m"; sleep 2; fun_v2x; }
+		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mXRAY NÃO INSTALADO!\033[0m"; sleep 2; fun_v2x; }
 		v2x_paths "$VCORE"
 		echo -e "\E[44;1;37m          REMOVER USUÁRIO $(echo $VCORE | tr a-z A-Z)          \E[0m\n"
 		[[ ! -s $VX_DB ]] && { echo -e "\n\033[1;31mNENHUM USUÁRIO ENCONTRADO!\033[0m"; sleep 2; fun_v2x; }
@@ -1859,7 +1833,7 @@ SVC
 
 	fun_v2x_list() {
 		v2x_resolve
-		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mNENHUM NÚCLEO INSTALADO!\033[0m"; sleep 2; fun_v2x; }
+		[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mXRAY NÃO INSTALADO!\033[0m"; sleep 2; fun_v2x; }
 		v2x_paths "$VCORE"
 		VX_IP=$(cat /etc/IP 2>/dev/null)
 		VX_PORT_VLESS=$(jq -r '.inbounds[] | select(.tag=="vless") | .port // empty' $VX_CONF 2>/dev/null)
@@ -1878,24 +1852,21 @@ SVC
 	}
 
 	fun_v2x() {
-		[[ -e /usr/local/bin/v2ray ]] && stsv="\033[1;32m◉ " || stsv="\033[1;31m○ "
 		[[ -e /usr/local/bin/xray ]] && stsx="\033[1;32m◉ " || stsx="\033[1;31m○ "
-		echo -e "\E[44;1;37m              GERENCIAR V2RAY / XRAY                \E[0m\n"
-		[[ -e /usr/local/bin/v2ray ]] && echo -e "\033[1;33mV2RAY\033[1;37m: \033[1;32m$(jq -r '[.inbounds[].port] | join(",")' /usr/local/etc/v2ray/config.json 2>/dev/null)\033[0m    \033[1;33mUSUÁRIOS\033[1;37m: \033[1;32m$(wc -l < $V2X_DIR/users-v2ray.db 2>/dev/null || echo 0)\033[0m"
+		echo -e "\E[44;1;37m                    GERENCIAR XRAY                    \E[0m\n"
 		[[ -e /usr/local/bin/xray ]] && echo -e "\033[1;33mXRAY\033[1;37m: \033[1;32m$(jq -r '[.inbounds[].port] | join(",")' /usr/local/etc/xray/config.json 2>/dev/null)\033[0m    \033[1;33mUSUÁRIOS\033[1;37m: \033[1;32m$(wc -l < $V2X_DIR/users-xray.db 2>/dev/null || echo 0)\033[0m"
-		echo -e "\n\033[1;31m[\033[1;36m01\033[1;31m] \033[1;37m• \033[1;33mINSTALAR/REMOVER V2RAY $stsv\033[1;31m\n[\033[1;36m02\033[1;31m] \033[1;37m• \033[1;33mINSTALAR/REMOVER XRAY $stsx\033[1;31m\n[\033[1;36m03\033[1;31m] \033[1;37m• \033[1;33mCRIAR USUÁRIO \033[1;31m\n[\033[1;36m04\033[1;31m] \033[1;37m• \033[1;33mREMOVER USUÁRIO \033[1;31m\n[\033[1;36m05\033[1;31m] \033[1;37m• \033[1;33mLISTAR USUÁRIOS \033[1;31m\n[\033[1;36m06\033[1;31m] \033[1;37m• \033[1;33mREINICIAR SERVIÇO \033[1;31m\n[\033[1;36m00\033[1;31m] \033[1;37m• \033[1;33mVOLTAR\033[0m"
+		echo -e "\n\033[1;31m[\033[1;36m01\033[1;31m] \033[1;37m• \033[1;33mINSTALAR/REMOVER XRAY $stsx\033[1;31m\n[\033[1;36m02\033[1;31m] \033[1;37m• \033[1;33mCRIAR USUÁRIO \033[1;31m\n[\033[1;36m03\033[1;31m] \033[1;37m• \033[1;33mREMOVER USUÁRIO \033[1;31m\n[\033[1;36m04\033[1;31m] \033[1;37m• \033[1;33mLISTAR USUÁRIOS \033[1;31m\n[\033[1;36m05\033[1;31m] \033[1;37m• \033[1;33mREINICIAR SERVIÇO \033[1;31m\n[\033[1;36m00\033[1;31m] \033[1;37m• \033[1;33mVOLTAR\033[0m"
 		echo ""
 		echo -ne "\033[1;32mSELECIONE UMA OPÇÃO \033[1;33m?\033[1;37m "
 		read xr
 		case $xr in
-		1 | 01) v2x_inst v2ray ;;
-		2 | 02) v2x_inst xray ;;
-		3 | 03) fun_v2x_create ;;
-		4 | 04) fun_v2x_remove ;;
-		5 | 05) fun_v2x_list ;;
-		6 | 06)
+		1 | 01) v2x_inst xray ;;
+		2 | 02) fun_v2x_create ;;
+		3 | 03) fun_v2x_remove ;;
+		4 | 04) fun_v2x_list ;;
+		5 | 05)
 			v2x_resolve
-			[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mNENHUM NÚCLEO INSTALADO!\033[0m"; sleep 2; fun_v2x; }
+			[[ -z "$VCORE" ]] && { echo -e "\n\033[1;31mXRAY NÃO INSTALADO! INSTALE O XRAY PRIMEIRO.\033[0m"; sleep 2; fun_v2x; }
 			v2x_paths "$VCORE"
 			systemctl restart $VX_SVC
 			echo -e "\n\033[1;32mSERVIÇO REINICIADO !\033[0m"
@@ -1956,9 +1927,6 @@ SVC
 			} || {
 				sts1="\033[1;31m○ "
 			}
-			[[ -e /usr/local/bin/v2ray ]] && {
-				echo -e "\033[1;32mSERVIÇO: \033[1;33mV2RAY \033[1;32mPORTA: \033[1;37m$(jq -r '[.inbounds[].port] | join(",")' /usr/local/etc/v2ray/config.json 2>/dev/null)"
-			}
 			[[ -e /usr/local/bin/xray ]] && {
 				echo -e "\033[1;32mSERVIÇO: \033[1;33mXRAY \033[1;32mPORTA: \033[1;37m$(jq -r '[.inbounds[].port] | join(",")' /usr/local/etc/xray/config.json 2>/dev/null)"
 				stsx="\033[1;32m◉ "
@@ -1974,7 +1942,7 @@ SVC
 [\033[1;36m05\033[1;31m] \033[1;37m• \033[1;33mSOCKS PROXY $sts4\033[1;31m
 [\033[1;36m06\033[1;31m] \033[1;37m• \033[1;33mSSL TUNNEL $sts3\033[1;31m
 [\033[1;36m07\033[1;31m] \033[1;37m• \033[1;33mSSLH MULTIPLEX $sts7\033[1;31m
-[\033[1;36m08\033[1;31m] \033[1;37m• \033[1;33mV2RAY/XRAY $stsx\033[1;31m
+[\033[1;36m08\033[1;31m] \033[1;37m• \033[1;33mXRAY $stsx\033[1;31m
 [\033[1;36m09\033[1;31m] \033[1;37m• \033[1;33mVOLTAR \033[1;32m<\033[1;33m<\033[1;31m< \033[1;31m
 [\033[1;36m00\033[1;31m] \033[1;37m• \033[1;33mSAIR \033[1;32m<\033[1;33m<\033[1;31m< \033[0m"
 			echo ""
