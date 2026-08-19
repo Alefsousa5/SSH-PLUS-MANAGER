@@ -11,14 +11,41 @@ Instalador rápido: **`xray.sh`**
 ## Instalação no VPS (1 comando)
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/xray.sh)
+bash <(curl -sL https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/arena/01a01a73-ssh-plus-manager/xray.sh)
 ```
 
 ou
 
 ```bash
-wget -O xray.sh https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/xray.sh
+wget -O xray.sh https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/arena/01a01a73-ssh-plus-manager/xray.sh
 chmod +x xray.sh && ./xray.sh
+```
+
+> **Importante:** os arquivos estão no branch `arena/01a01a73-ssh-plus-manager`.
+> Eles **ainda não foram enviados para a `main`**, então uma URL com `/main/`
+> retorna **404**. Depois de fazer o merge para a `main`, troque o trecho
+> `arena/01a01a73-ssh-plus-manager` por `main` — ou use `XR_REF`:
+>
+> ```bash
+> XR_REF="main" bash <(curl -sL https://raw.githubusercontent.com/Alefsousa5/SSH-PLUS-MANAGER/main/xray.sh)
+> ```
+
+### Se o download falhar no VPS
+
+O instalador já tenta **4 espelhos** automaticamente (`raw.githubusercontent.com`,
+`github.com`, `jsDelivr` e `api.github.com`) em cada branch candidato. Se mesmo
+assim falhar, a rede do VPS está bloqueando o GitHub. Nesse caso, copie o arquivo
+direto do seu PC:
+
+```bash
+scp Modules/xray-manager root@SEU_IP:/bin/xray-manager
+ssh root@SEU_IP 'chmod +x /bin/xray-manager && xray-manager'
+```
+
+Ou, se você já clonou o repositório dentro do VPS:
+
+```bash
+cd SSH-PLUS-MANAGER && ./xray.sh --local
 ```
 
 Depois disso, abra o painel a qualquer momento com:
